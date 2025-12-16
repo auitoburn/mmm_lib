@@ -1214,9 +1214,14 @@ function routine(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
          end
 	 if ((l+L)>length(cl))                              # restart in case length is not doubled
 	    l=length(cl)-L
+	    if (l<0)
+	       println("TERMINATE")
+	       RUN=0
+            else
 	    MAX=l
 	    println("Restart. Number of clusters to be added: ", l)
 	    restore_clusters!(glob,cl,temp)
+            end
 	 else
 	    RUN=0
 	 end
