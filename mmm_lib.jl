@@ -4,6 +4,8 @@
 # Licence: MIT
 
 # struct containing global params
+# all changes made to iterate_EM_HM! and can be applied to remaning iterate functions
+# routine is used to add clusters with addNewCluster!. EM algorithm run  once at halfway and once at end for every run. cluster addition restarts if empty clusters are present at the end
 
 mutable struct Params
     minclustsize::Int64
@@ -1041,7 +1043,7 @@ function sampleClusters_HM(glob::Params, clusters::Vector{Cluster})
         pushCluster!(clusters[newclust],nr,glob)
         ll_running += (scores[newclust]-scores[nclust])
 
-        
+       
         if mod(n,nsnap)==0 && n>Niter÷10 # equilibriation = 10%
             # FIXME if we even want counts...
             for r in 1:glob.nrows
@@ -1172,21 +1174,22 @@ function sampleClusters_TI(glob::Params, clusters::Vector{Cluster})
     return simpson(betalist,integrand)
 end
 
+# routine is used to add clusters. the extra if statement is to accomodate two_split!, currently not used
+
 function routine(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
     l=min(length(cl),n)
-    if (MAX==0)
+    if (MAX==0)                                             # MAX is used to limit the number of clusters added based on previous runs. currently not used
        l=min(length(cl),n)
     end
     temp=save_clusters(glob,cl);RUN=1;L=length(cl)
     println("Number of clusters to be added: ", n)
     while(RUN==1)
          if (l<length(cl))
-            println("Variance sorting used.")
-            #Indices=find_ids!(cl,glob)
+            #Indices=find_ids!(cl,glob)                     # find_ids! is used to find clusters with most variance. currently not used
             for i in 1:l
 	        #two_split!(cl,Indices[i],glob)
 		addNewCluster!(cl,glob)
-		if (i==floor(Int,l/2))
+		if (i==floor(Int,l/2))                      # halfway point EM
 		   optimizeClusters_EM!(glob,cl)
 		   println("1/2 way point EM")
 		end
@@ -1204,12 +1207,12 @@ function routine(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
          println("Cluster length after addition: ", length(cl))
          optimizeClusters_EM!(glob,cl)
          println("EM check")
-         if (any(map(x->x.nrows==0,cl)))
+         if (any(map(x->x.nrows==0,cl)))                    # empty clusters checked here
             clean!(cl,glob)
             println("Empty clusters present")
 	    println("Cluster length after cleaning: ", length(cl))
          end
-	 if ((l+L)>length(cl))
+	 if ((l+L)>length(cl))                              # restart in case length is not doubled
 	    l=length(cl)-L
 	    MAX=l
 	    println("Restart. Number of clusters to be added: ", l)
@@ -1231,33 +1234,7 @@ function routine(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
     return cl,ll_hm,nnew,MAX
 end
 
-function routine!(cl::Vector{Cluster},glob::Params,n::Int)
-    println("Number of clusters to be added: ", n,)
-    for i in 1:n
-      addNewCluster!(cl,glob)
-    end
-    println("Cluster length after addition: ", length(cl))
-    optimizeClusters_EM!(glob,cl)
-    println("EM check")
-    if (any(map(x->x.nrows==0,cl)))
-      clean!(cl,glob)
-      println("Empty clusters present")
-    end
-    nnew=length(cl)
-    println("Cluster length after cleaning: ", length(cl))
-    llr = sum([clusterLikelihood(glob,c) for c in cl])
-    id = save_clusters(glob,cl)
-    counts,ll_hm,ll_best,clusterids = sampleClusters_HM(glob,cl)
-    println("ll_HM check",ll_hm)
-    restore_clusters!(glob,cl,id)
-    println(length(cl))
-    if glob.debug
-      println("iterate_EM_HM aftersample #clust=", length(cl), " llr=",llr," llbest=",ll_best," ll_hm=",ll_hm)
-    end
-    flush(stdout)
-    return cl,ll_hm,nnew
-end
-
+# fixed can be used to run the algorithm from arbitrary cluster counts. currently not used
 
 function fixed(cl0::Cluster,glob::Params,idx::Int)
     llr = clusterLikelihood(glob,cl0)
@@ -1309,7 +1286,7 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
     clusters = [cl0]; clusters1=deepcopy(cl0); clusters2=deepcopy(cl0);fixed=deepcopy(clusters);
     Glob=deepcopy(glob); glob2=deepcopy(glob);
     m=0;N=0;j=0;L1=0;L2=0;max=10000000
-    nold=length(clusters);check=0;L=0;first=1;enter=0;
+    nold=length(clusters);check=0;L=0;first=1;enter=0;                                               # variables count can be decreased
     count=0;Count=0;Check=0;go=1;Go=1;CHECK=0;run=1
 
     while (((glob.nclust == 0)&&(ll_hm>=ll_hm_last)) || (glob.nclust > 0 && length(clusters) < glob.nclust))
@@ -1326,7 +1303,7 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
            n=nold+m
 	L1=length(clusters)
 	if (check==0||Check==1)
-	   clusters,ll_hm,nnew,max=routine(clusters,glob,n,max)
+	   clusters,ll_hm,nnew,max=routine(clusters,glob,n,max)                                     # normal cluster adding routine before local maxima is encountered
 	   L2=length(clusters)
         elseif (check==1 && Check==0)
 	   println("ENTERED");enter=1;Check=1;MAX1=max;MAX2=max
@@ -1347,10 +1324,10 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 	   =#
 	   if(run==1)
 	   l1=length(Clusters);l2=length(clusters);l=floor(Int,(l1+l2)/2);l3=floor(Int,(l2+L)/2);
-	   T1=Threads.@spawn routine(Clusters,glob1,l-l1,MAX1)
+	   T1=Threads.@spawn routine(Clusters,glob1,l-l1,MAX1)                                      # Threads can be removed without changing or affecting remaining code
 	   T2=Threads.@spawn routine(clusters,glob,l3-l2,MAX2)
 	   clusters1,ll_hm1,nnew1,max1=fetch(T1)
-	   clusters2,ll_hm2,nnew2,max2=fetch(T2)
+	   clusters2,ll_hm2,nnew2,max2=fetch(T2)					            # mid points are calculated
 	   max=min(max1,max2)
 	   println("SUCCESS")
 	   if (ll_hm2>ll_hm1)
@@ -1369,12 +1346,12 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 		 clusters,ll_hm,nnew,max=routine(clusters2,glob,l-l1,max)
 		 ll_hm_last=ll_hm2
 	      end
-           elseif (ll_hm1>ll_hm2)  
+           elseif (ll_hm1>ll_hm2)              								
 	      Check=1;check=1;go=1;Go=0;
               
 	     if (ll_hm_prev>ll_hm1)
 		      println("3");glob=glob3
-		 id_best=save_clusters(Clusters1)
+		 id_best=save_clusters(Clusters1)                                                  # we compare ll_hm values to decide which interval should be split further
 		 nold=length(id_best)
                  l1=length(Clusters1);l2=length(clusters1);l=floor(Int,(l1+l2)/2)
                  clusters,ll_hm,nnew,max=routine(Clusters1,glob,l-l1,max)
@@ -1394,21 +1371,13 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 	   end
            end
 	end
-        if ((ll_hm<=ll_hm_last)&&(go==0))
-	   id_best=save_clusters(glob,clusters)
-	   x=floor(Int,(length(id_best)+L)/2)
-	   m=x-2*length(id_best)
-	   ll_hm,ll_hm_last=ll_hm_last,ll_hm;go=1;
-	elseif(go==0)
-	   return clusters
-	end
-	
+       
 	if ((ll_hm <= ll_hm_last) && (glob.nclust==0) && (go==1))
 	   L=length(clusters)
 	   if (length(id_best)<=L)
               restore_clusters!(glob,clusters,id_best)
 	   else
-	      println("length of id_best=", length(id_best), "length of current clusters=", L)
+	      println("length of id_best=", length(id_best), "length of current clusters=", L)     # in case cluster length after addtion falls below original cluster length, we terminate
               println("trouble")
 	      println("Terminating with #clust=",length(clusters))
 	      return clusters
@@ -1433,7 +1402,7 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 		 Clusters=deepcopy(clusters);Glob=deepcopy(glob)
 		 if (length(Clusters)>=length(id_best))
 		    restore_clusters!(Glob,Clusters,id_best)
-		    id_prev=save_clusters(Glob,Clusters)
+		    id_prev=save_clusters(Glob,Clusters)                                           # id_prev is the cluster assignment previous to id_best
 		 else
 	            id_prev=save_clusters(Glob,Clusters)
 		 end
@@ -1446,8 +1415,8 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 	  Count=Count+1
 	end
 	if((Count>2)&&(go==1)&&(Go==1))
-	  println("Terminating with #clust=",length(clusters))
-	  return clusters
+	  println("Terminating with #clust=",length(clusters))                                     # after first local maxima is hit, we terminate when then there are three repitions of cluster length.
+	  return clusters                                                                          # check this again
 	end
     end
     println("OUT")
