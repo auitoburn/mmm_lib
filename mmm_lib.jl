@@ -1317,16 +1317,12 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 	   restore_clusters!(glob1,Clusters,id_prev);
 	   c1=length(Clusters);c2=length(Clusters2)
 	   println("Length of id_prev= ", c1, "Length of id_best= ", c2, "Length of latest cluster= ", L)
-	   println("ll_hm_prev= ", ll_hm_prev, "ll_hm_last= ", ll_hm_last)
+	   if ((c1==c2)&&(c2==L))
+	      println("Lenghts of id_prev, id_best and latest cluster are equal.")
+	      println("Terminating with #clust=",length(clusters))
+	      return clusters
+           end 
 	   glob3=deepcopy(glob1);Clusters1=deepcopy(Clusters)
-	   #=
-	   if ((L-c2)<2)
-              run=0;go=0;
-	      l1=length(Clusters);L=length(clusters);l2=floor(Int,(l1+L)/2)
-	      clusters,ll_hm,nnew=routine(Clusters,glob1,l2-l1,max)
-	      glob=glob1
-	   end
-	   =#
 	   if(run==1)
 	   l1=length(Clusters);l2=length(clusters);l=floor(Int,(l1+l2)/2);l3=floor(Int,(l2+L)/2);
 	   T1=Threads.@spawn routine(Clusters,glob1,l-l1,MAX1)                                      # Threads can be removed without changing or affecting remaining code
@@ -1370,6 +1366,7 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 		 ll_hm_last=ll_hm1
               end
            else
+	      println("EQUALITY")
 	      id_prev=save_clusters(glob1,clusters1);clusters=Clusters2
               L=length(clusters2);glob=glob2;ll_hm_prev=ll_hm1
               go=0;check=1;Check=0;enter=0
