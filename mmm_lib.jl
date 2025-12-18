@@ -1366,7 +1366,7 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 		 ll_hm_last=ll_hm1
               end
            else
-	      println("EQUALITY")
+	      println("5")
 	      id_prev=save_clusters(glob1,clusters1);clusters=Clusters2
               L=length(clusters2);glob=glob2;ll_hm_prev=ll_hm1
               go=0;check=1;Check=0;enter=0
