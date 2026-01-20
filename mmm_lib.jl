@@ -1177,13 +1177,8 @@ end
 
 function bisect!(cl::Vector{Cluster},glob::Params,n::Int,score::Float64)
 	N=div(n,2)
-	if(N==0)
-		M=1
-	else
-		M=N
-	end
 	temp=save_clusters(glob,cl)
-	cl,ll_hm,nnew,max=routine(cl,glob,M,0)
+	cl,ll_hm,nnew,max=routine(cl,glob,N,0)
 	while(N!=0)
 		N=div(N,2)
 		if(ll_hm>score)
@@ -1233,9 +1228,9 @@ function routine(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
     return cl,ll_hm,nnew,MAX
 end
 
-# fixed can be used to run the algorithm from arbitrary cluster counts. currently not used
 
-function fixed(cl0::Cluster,glob::Params,idx::Int)
+using Base.Threads
+function iterate_EM_HM!(cl0::Cluster,glob::Params)
     llr = clusterLikelihood(glob,cl0)
     ll_hm = llr
     if glob.debug
@@ -1243,205 +1238,24 @@ function fixed(cl0::Cluster,glob::Params,idx::Int)
     end
     ll_hm_best = ll_hm
     ll_hm_last = -10000000000.0
+    ll_hm_prev = -20000000000.0
     id_best = save_clusters(glob,[cl0])
+    id_prev = save_clusters(glob,[cl0])
     llr_last = llr
     clusters = [cl0]
-    while (((glob.nclust == 0)&&(ll_hm>ll_hm_last)) || (glob.nclust > 0 && length(clusters) < glob.nclust))
-       if glob.debug
-           println("iterate_EM_HM #clust=", length(clusters), " llr=",llr," ll_hm=",ll_hm)
-       end
-       ll_hm_last = ll_hm
-       llr_last = llr
-       clusters,ll_hm,nnew=routine(clusters,glob,idx)
-       if(ll_hm<ll_hm_last)
-	 if(length(id_best)>length(clusters))
-	    return clusters,ll_hm
-         else
-	    restore_clusters!(glob,clusters,id_best)
-	    return clusters,ll_hm_last
-         end
-       else
-         id_best=save_clusters(glob,clusters)
-       end
-    end
-    restore_clusters!(glob,clusters,id_best)
-    return clusters, ll_hm
-end
-
-#=
-using Base.Threads
-function iterate_EM_HM!(cl0::Cluster,glob::Params)
-    llr = clusterLikelihood(glob,cl0)
-    ll_hm = llr
-    if glob.debug
-        println("iterate_EM_HM #clust=", 1, " llr=",llr," ll_hm=",ll_hm)
-    end
-    ll_hm_best = ll_hm
-    ll_hm_last = -10000000000.0
-    ll_hm_prev = -20000000000.0
-    id_best = save_clusters(glob,[cl0])
-    id_prev = save_clusters(glob,[cl0])
-    llr_last = llr
-    clusters = [cl0]; clusters1=deepcopy(cl0); clusters2=deepcopy(cl0);fixed=deepcopy(clusters);
-    Glob=deepcopy(glob); glob2=deepcopy(glob);
-    m=0;N=0;j=0;L1=0;L2=0;max=10000000
-    nold=length(clusters);check=0;L=0;first=1;enter=0;                                               # variable count can be decreased
-    count=0;Count=0;Check=0;go=1;Go=1;CHECK=0;run=1
-
-    while (ll_hm>=ll_hm_last)
-	if glob.debug
-            println("iterate_EM_HM #clust=", length(clusters), " llr=",llr," ll_hm=",ll_hm)
-        end
-
-	if ((go==1)&&(first==1)||(enter==1))
-	   ll_hm_prev=ll_hm_last
-	end
-           ll_hm_last = ll_hm
-           llr_last = llr
-           nold=length(clusters)
-           n=nold+m
-	L1=length(clusters)
-	if (check==0||Check==1)
-	   clusters,ll_hm,nnew,max=routine(clusters,glob,n,max)                                     # normal cluster adding routine before local maxima is encountered
-	   L2=length(clusters)
-        elseif (check==1 && Check==0)
-	   println("ENTERED");enter=1;Check=1;
-	   Clusters=deepcopy(clusters);Clusters2=deepcopy(clusters)
-	   glob1=deepcopy(glob);glob2=deepcopy(glob)
-	   restore_clusters!(glob1,Clusters,id_prev);
-	   c1=length(Clusters);c2=length(Clusters2)
-	   println("Length of id_prev= ", c1, "Length of id_best= ", c2, "Length of latest cluster= ", L)
-	   if ((c1==c2)&&(c2==L))
-	      println("Lenghts of id_prev, id_best and latest cluster are equal.")
-	      println("Terminating with #clust=",length(clusters))
-	      return clusters
-           end 
-	   glob3=deepcopy(glob1);Clusters1=deepcopy(Clusters)
-	   if(run==1)
-	   l1=length(Clusters);l2=length(clusters);l=floor(Int,(l1+l2)/2);l3=floor(Int,(l2+L)/2);
-	   T1=Threads.@spawn routine(Clusters,glob1,l-l1,0)                                      # Threads can be removed without changing or affecting remaining code
-	   T2=Threads.@spawn routine(clusters,glob,l3-l2,0)
-	   clusters1,ll_hm1,nnew1,max1=fetch(T1)
-	   clusters2,ll_hm2,nnew2,max2=fetch(T2)					            # mid points are calculated
-	   max=0;
-	   println("SUCCESS")
-	   if (ll_hm2>ll_hm1)
-              Check=1;check=1;go=1;Go=0;
-	     if (ll_hm_last>ll_hm2)
-		      println("1");glob=glob2;
-		 id_best=save_clusters(glob,Clusters2)
-		 nold=length(id_best)
-                 l1=length(Clusters2);l2=length(clusters2);l=floor(Int,(l1+l2)/2)
-		 clusters,ll_hm,nnew,max=routine(Clusters2,glob,l-l1,max)
-	     else
-		      println("2")
-		 id_best=save_clusters(glob,clusters2)
-		 nold=length(id_best)
-	         l1=length(clusters2);l=floor(Int,(l1+L)/2)
-		 clusters,ll_hm,nnew,max=routine(clusters2,glob,l-l1,max)
-		 ll_hm_last=ll_hm2
-	      end
-           elseif (ll_hm1>ll_hm2)              								
-	      Check=1;check=1;go=1;Go=0;
-              
-	     if (ll_hm_prev>ll_hm1)
-		      println("3");glob=glob3
-		 id_best=save_clusters(Clusters1)                                                  # we compare ll_hm values to decide which interval should be split further
-		 nold=length(id_best)
-                 l1=length(Clusters1);l2=length(clusters1);l=floor(Int,(l1+l2)/2)
-                 clusters,ll_hm,nnew,max=routine(Clusters1,glob,l-l1,max)
-		 ll_hm_last=ll_hm_prev
-             else
-	         println("4");glob=glob1
-		 id_best=save_clusters(glob,clusters1)
-		 nold=length(id_best)
-		 l1=length(clusters1);l2=length(Clusters2);l=floor(Int,(l1+l2)/2)
-                 clusters,ll_hm,nnew,max=routine(clusters1,glob,l-l1,max)
-		 ll_hm_last=ll_hm1
-              end
-           else
-	      println("5")
-	      id_prev=save_clusters(glob1,clusters1);clusters=Clusters2
-              L=length(clusters2);glob=glob2;ll_hm_prev=ll_hm1
-              go=0;check=1;Check=0;enter=0
-	   end
-           end
-	end
-       
-	if ((ll_hm <= ll_hm_last)&& (go==1))
-	   L=length(clusters)
-	   if (length(id_best)<=L)
-              restore_clusters!(glob,clusters,id_best)
-	   else
-	      println("length of id_best=", length(id_best), "length of current clusters=", L)     # in case cluster length after addtion falls below original cluster length, we terminate
-              println("trouble")
-	      println("Terminating with #clust=",length(clusters))
-	      return clusters
-	   end
-           if glob.debug
-              println("(AR)iterate_EM_HM #clust=", length(clusters), " llr=",llr_last," ll_hm=",ll_hm_last)
-           end
-           N=div(nold+L,2)
-	   m=N-2*nold
-           check=1;Go=1;CHECK=1;first=0
-	   ll_hm,ll_hm_last=ll_hm_last,ll_hm
-        elseif(go==1)
-	   if(check==1)
-	      if (Check==0)	   
-	         id_prev=save_clusters(glob,id_best)
-              end
-	      id_best=save_clusters(glob,clusters)
-              N=div(nnew+L,2)
-	      m=N-2*nnew
-           else
-              if (Check==0)
-		 Clusters=deepcopy(clusters);Glob=deepcopy(glob)
-		 if (length(Clusters)>=length(id_best))
-		    restore_clusters!(Glob,Clusters,id_best)
-		    id_prev=save_clusters(Glob,Clusters)                                           # id_prev is the cluster assignment previous to id_best
-		 else
-	            id_prev=save_clusters(Glob,Clusters)
-		 end
-		 println("id_prev saved")
-	      end
-	      id_best=save_clusters(glob,clusters)
-           end
-        end
-	if(((L1-L2)==0)&&(CHECK==1))
-	  Count=Count+1
-	end
-	if((Count>2)&&(go==1)&&(Go==1))
-	  println("Terminating with #clust=",length(clusters))                                     # after first local maxima is hit, we terminate when then there are three repitions of cluster length.
-	  return clusters                                                                          # check this again
-	end
-    end
-    println("OUT")
-    println("Terminating with #clust=",length(clusters))
-    return clusters    
-end
-=#
-using Base.Threads
-function iterate_EM_HM!(cl0::Cluster,glob::Params)
-    llr = clusterLikelihood(glob,cl0)
-    ll_hm = llr
-    if glob.debug
-        println("iterate_EM_HM #clust=", 1, " llr=",llr," ll_hm=",ll_hm)
-    end
-    ll_hm_best = ll_hm
-    ll_hm_last = -10000000000.0
-    ll_hm_prev = -20000000000.0
-    id_best = save_clusters(glob,[cl0])
-    id_prev = save_clusters(glob,[cl0])
-    llr_last = llr
-    clusters = [cl0];n=1;
+    n=1;check=0;nnew=length(clusters)
     while (ll_hm>=ll_hm_last)
 	if glob.debug
             println("iterate_EM_HM #clust=", length(clusters), " llr=",llr," ll_hm=",ll_hm)
         end
 	ll_hm_prev=ll_hm_last
 	ll_hm_last=ll_hm
+	length_prev=nnew
 	clusters,ll_hm,nnew,max=routine(clusters,glob,n,0)
-	if(ll_hm<=ll_hm_last)
+	if(length_prev==nnew)
+		check=1
+	end
+	if((ll_hm<=ll_hm_last)||check==1)
 		println("ENTERED")
 		println("length of id_prev=",length(id_prev),"length of id_best=",length(id_best),"length of id_current=",length(clusters))
 		n1=length(id_best)-length(id_prev)
@@ -1453,13 +1267,10 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 		cl1,ll_hm1=fetch(T1);cl2,ll_hm2=fetch(T2)
 		println("(id_prev,id_best)",length(cl1),ll_hm1)
 		println("(id_best,id_current)",length(cl2),ll_hm2)
-		if(ll_hm1>ll_hm2)
-			println("Terminating with #clust=",length(cl1))
-			return cl1
-		else
-			println("Terminating with #clust=",length(cl2))
-                	return cl2
-		end
+		final,ll_hm=bisect!(cl1,glob,length(cl2)-length(cl1),ll_hm1)
+		println("Terminating with #clust=",length(final))
+		return final
+
 	else
 		n=length(clusters)
 		Clusters=deepcopy(clusters);Glob=deepcopy(glob)
@@ -1468,9 +1279,7 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 		id_best=save_clusters(glob,clusters)
 	end
     end
-    println("OUT")
-    println("Terminating with #clust=",length(clusters))
-    return clusters    
+    return final    
 end
 
 
