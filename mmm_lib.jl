@@ -1268,8 +1268,20 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 		println("(id_prev,id_best)",length(cl1),ll_hm1)
 		println("(id_best,id_current)",length(cl2),ll_hm2)
 		final,ll_hm=bisect!(cl1,glob,length(cl2)-length(cl1),ll_hm1)
-		println("Terminating with #clust=",length(final))
-		return final
+		if(ll_hm1<ll_hm2)
+			Clusters=cl2
+			score=ll_hm2
+		else
+			Clusters=cl1
+			score=ll_hm1
+		end
+		if(ll_hm<score)
+			println("Terminating with #clust=",length(Clusters))
+			return Clusters
+		else
+			println("Terminating with #clust=",length(final))
+                        return final
+		end
 
 	else
 		n=length(clusters)
