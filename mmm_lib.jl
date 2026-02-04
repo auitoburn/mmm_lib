@@ -1175,19 +1175,24 @@ function sampleClusters_TI(glob::Params, clusters::Vector{Cluster})
 end
 
 
-function bisect!(cl::Vector{Cluster},glob::Params,n::Int,score::Float64)
+function bisect_HM!(cl::Vector{Cluster},glob::Params,n::Int,score::Float64)
 	N=div(n,2)
 	temp=save_clusters(glob,cl)
-	cl,ll_hm,nnew,max=routine(cl,glob,N,0)
+	cl,ll_hm,nnew,max=routine_HM(cl,glob,N,0)
 	while(N!=0)
-		N=div(N,2)
+		if(N>1)
+			N=div(N,2)
+		end
 		if(ll_hm>score)
 			score=ll_hm
 			temp=save_clusters(glob,cl)
-			cl,ll_hm,nnew,max=routine(cl,glob,N,0)
+			cl,ll_hm,nnew,max=routine_HM(cl,glob,N,0)
 		else
 			restore_clusters!(glob,cl,temp)
-			cl,ll_hm,nnew,max=routine(cl,glob,N,0)
+			cl,ll_hm,nnew,max=routine_HM(cl,glob,N,0)
+		end
+		if(N==1)
+			N=0
 		end
 	end
 	return cl,ll_hm
@@ -1195,7 +1200,7 @@ end
 
 
 # routine is used to add clusters.
-function routine(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
+function routine_HM(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
     l=min(length(cl),n)
     temp=save_clusters(glob,cl);L=length(cl)
     println("Number of clusters to be added: ", n)
@@ -1203,6 +1208,12 @@ function routine(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
 		addNewCluster!(cl,glob)
 		if (i==floor(Int,l/2))                      # halfway point EM
   	           optimizeClusters_EM!(glob,cl)
+		   if (any(map(x->x.nrows==0,cl)))                    # empty clusters checked here
+            		clean!(cl,glob)
+            		println("Empty clusters present")
+            		println("Cluster length after cleaning: ", length(cl))
+            		MAX=abs(L-length(cl))
+        	   end
 		   println("1/2 way point EM")
 		end
             end
@@ -1229,7 +1240,6 @@ function routine(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
 end
 
 
-using Base.Threads
 function iterate_EM_HM!(cl0::Cluster,glob::Params)
     llr = clusterLikelihood(glob,cl0)
     ll_hm = llr
@@ -1251,7 +1261,7 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 	ll_hm_prev=ll_hm_last
 	ll_hm_last=ll_hm
 	length_prev=nnew
-	clusters,ll_hm,nnew,max=routine(clusters,glob,n,0)
+	clusters,ll_hm,nnew,max=routine_HM(clusters,glob,n,0)
 	if(length_prev==nnew)
 		check=1
 	end
@@ -1262,16 +1272,16 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 		n2=length(clusters)-length(id_best)
 		Clusters=deepcopy(clusters);Glob=deepcopy(glob)
 		restore_clusters!(glob,clusters,id_prev);restore_clusters!(Glob,Clusters,id_best)
-		T1=Threads.@spawn bisect!(clusters,glob,n1,ll_hm_prev)
-		T2=Threads.@spawn bisect!(Clusters,Glob,n2,ll_hm_last)
-		cl1,ll_hm1=fetch(T1);cl2,ll_hm2=fetch(T2)
-		println("(id_prev,id_best)",length(cl1),ll_hm1)
-		println("(id_best,id_current)",length(cl2),ll_hm2)
-		final,ll_hm=bisect!(cl1,glob,length(cl2)-length(cl1),ll_hm1)
+		cl1,ll_hm1=bisect_HM!(clusters,glob,n1,ll_hm_prev)
+		cl2,ll_hm2=bisect_HM!(Clusters,Glob,n2,ll_hm_last)
+		println("(id_prev,id_best)=",length(cl1),",",ll_hm1)
+		println("(id_best,id_current)=",length(cl2),",",ll_hm2)
+		final,ll_hm=bisect_HM!(cl1,glob,length(cl2)-length(cl1),ll_hm1)
 		if(ll_hm1<ll_hm2)
 			Clusters=cl2
 			score=ll_hm2
 		else
+
 			Clusters=cl1
 			score=ll_hm1
 		end
@@ -1294,79 +1304,134 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
     return final    
 end
 
+function bisect_TI!(cl::Vector{Cluster},glob::Params,n::Int,score::Float64)
+        N=div(n,2)
+        temp=save_clusters(glob,cl)
+        cl,ll_ti,nnew,max=routine_TI(cl,glob,N,0)
+        while(N!=0)
+		if(N>1)
+			N=div(n,2)
+		end
+                if(ll_ti>score)
+                        score=ll_ti
+                        temp=save_clusters(glob,cl)
+                        cl,ll_ti,nnew,max=routine_TI(cl,glob,N,0)
+                else
+                        restore_clusters!(glob,cl,temp)
+                        cl,ll_ti,nnew,max=routine_TI(cl,glob,N,0)
+                end
+		if(N==1)
+			N=0
+		end
+        end
+        return cl,ll_ti
+end
+
+
+# routine is used to add clusters.
+function routine_TI(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
+    l=min(length(cl),n)
+    temp=save_clusters(glob,cl);L=length(cl)
+    println("Number of clusters to be added: ", n)
+            for i in 1:l
+		addNewCluster!(cl,glob)
+		if (i==floor(Int,l/2))                      # halfway point EM
+  	           optimizeClusters_EM!(glob,cl)
+		   if (any(map(x->x.nrows==0,cl)))                    # empty clusters checked here
+            		clean!(cl,glob)
+            		println("Empty clusters present")
+            		println("Cluster length after cleaning: ", length(cl))
+            		MAX=abs(L-length(cl))
+        	   end
+		   println("1/2 way point EM")
+		end
+            end
+         println("Cluster length after addition: ", length(cl))
+         optimizeClusters_EM!(glob,cl)
+         println("EM check")
+         if (any(map(x->x.nrows==0,cl)))                    # empty clusters checked here
+            clean!(cl,glob)
+            println("Empty clusters present")
+	    println("Cluster length after cleaning: ", length(cl))
+            MAX=abs(L-length(cl))         
+        end
+    nnew=length(cl)
+    println("Final cluster length: ", length(cl))
+    llr = sum([clusterLikelihood(glob,c) for c in cl])
+    id = save_clusters(glob,cl)
+    ll_ti = sampleClusters_TI(glob,cl)
+    restore_clusters!(glob,cl,id)
+    if glob.debug
+      println("iterate_EM_HM aftersample #clust=", length(cl), " llr=",llr," ll_ti=",ll_ti)
+    end
+    flush(stdout)
+    return cl,ll_ti,nnew,MAX
+end
+
 
 function iterate_EM_TI!(cl0::Cluster,glob::Params)
     llr = clusterLikelihood(glob,cl0)
-    ll_TI = llr
+    ll_ti = llr
     if glob.debug
-        println("iterate_EM_TI #clust=", 1, " llr=",llr," ll_TI=",ll_TI)
+        println("iterate_EM_TI #clust=", 1, " llr=",llr," ll_ti=",ll_ti)
     end
-    ll_TI_best = ll_TI
-    ll_TI_last = -10000000000.0
+    ll_ti_best = ll_ti
+    ll_ti_last = -10000000000.0
+    ll_ti_prev = -20000000000.0
     id_best = save_clusters(glob,[cl0])
+    id_prev = save_clusters(glob,[cl0])
     llr_last = llr
     clusters = [cl0]
-    m=0;N=0;
-    nold=length(clusters);check=0;L=0;
-    count=0
-    while (glob.nclust==0) || (glob.nclust > 0 && length(clusters) < glob.nclust)
-        if glob.debug
-            println("iterate_EM_TI #clust=", length(clusters), " llr=",llr," ll_TI=",ll_TI)
-        end
-        ll_TI_last = ll_TI
-        llr_last = llr
-        nold=length(clusters)
-	n=nold+m
-	println("Number of clusters to be added: ", n,)
-	for i in 1:n
-            two_split!(clusters,i,glob)
-        end
-	println("Cluster length after addition: ", length(clusters))
-	optimizeClusters_EM!(glob,clusters)
-	println("EM check")
-	if (any(map(x->x.nrows==0,clusters)))
-           clean!(clusters,glob)
-           println("Empty clusters present")
-        end
-        nnew=length(clusters)
-        println("Cluster length after cleaning: ", length(clusters), " ll_TI= ",ll_TI)
-        llr = sum([clusterLikelihood(glob,c) for c in clusters])
-	println("llr check")
-        id = save_clusters(glob,clusters)
-	println("save_clusters check")
-	ll_TI = sampleClusters_TI(glob,clusters)
-	println("ll_TI check")
-        #restore_clusters!(glob,clusters,id)
-        #println("aftersample #clust=", length(clusters), " llr=",llr," ll_hm=",ll_hm)
-        flush(stdout)
-        if (ll_TI < ll_TI_last  && glob.nclust==0)
-	    L=length(clusters)
-            restore_clusters!(glob,clusters,id_best)
-            if glob.debug
-		    println("(AR)iterate_EM_TI #clust=", length(clusters), " llr=",llr_last," ll_TI=",ll_TI_last)
-            end
-	    println(L)
-	    N=div(nold+L,2)
-	    m=N-2*nold
-            check=1
-        else
-	    if(check==1)
-	      id_best = save_clusters(glob,clusters)
-	      N=div(nnew+L,2)
-	      m=N-2*nnew
-            else
-	      id_best=save_clusters(glob,clusters)
-	    end
-        end
-	if(nold==N)
-	   println("Terminate")
-	   return clusters
-	end
-	count=count+1;println(count)
-    end
-    return clusters    
-end
+    n=1;check=0;nnew=length(clusters)
 
+  while (ll_ti>=ll_ti_last)
+	if glob.debug
+            println("iterate_EM_TI #clust=", length(clusters), " llr=",llr," ll_ti=",ll_ti)
+        end
+	ll_ti_prev=ll_ti_last
+	ll_ti_last=ll_ti
+	length_prev=nnew
+	clusters,ll_ti,nnew,max=routine_TI(clusters,glob,n,0)
+	if(length_prev==nnew)
+		check=1
+	end
+	if((ll_ti<=ll_ti_last)||check==1)
+		println("ENTERED")
+		println("length of id_prev=",length(id_prev),"length of id_best=",length(id_best),"length of id_current=",length(clusters))
+		n1=length(id_best)-length(id_prev)
+		n2=length(clusters)-length(id_best)
+		Clusters=deepcopy(clusters);Glob=deepcopy(glob)
+		restore_clusters!(glob,clusters,id_prev);restore_clusters!(Glob,Clusters,id_best)
+		cl1,ll_ti1=bisect_TI!(clusters,glob,n1,ll_ti_prev)
+		cl2,ll_ti2=bisect_TI!(Clusters,Glob,n2,ll_ti_last)
+		println("(id_prev,id_best)=",length(cl1),",",ll_ti1)
+		println("(id_best,id_current)=",length(cl2),",",ll_ti2)
+		final,ll_ti=bisect_HM!(cl1,glob,length(cl2)-length(cl1),ll_ti1)
+		if(ll_ti1<ll_ti2)
+			Clusters=cl2
+			score=ll_ti2
+		else
+			Clusters=cl1
+			score=ll_ti1
+		end
+		if(ll_ti<score)
+			println("Terminating with #clust=",length(Clusters))
+			return Clusters
+		else
+			println("Terminating with #clust=",length(final))
+                        return final
+		end
+
+	else
+		n=length(clusters)
+		Clusters=deepcopy(clusters);Glob=deepcopy(glob)
+		restore_clusters!(Glob,Clusters,id_best)
+		id_prev=save_clusters(Glob,Clusters)
+		id_best=save_clusters(glob,clusters)
+	end
+    end
+    return final    
+end
 
 
 
