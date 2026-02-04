@@ -4,8 +4,9 @@
 # Licence: MIT
 
 # struct containing global params
-# all changes made to iterate_EM_HM! and can be applied to remaning iterate functions
-# routine is used to add clusters with addNewCluster!. EM algorithm run  once at halfway and once at end for every run. cluster addition restarts if empty clusters are present at the end
+# all changes made to iterate_EM_HM! and iterate_EM_TI!
+# routine_HM and routine_TI are used to add clusters with addNewCluster!. EM algorithm run  once at halfway and once at end
+# bisect_HM and bisect_TI are used for interval bisection
 
 mutable struct Params
     minclustsize::Int64
@@ -1545,3 +1546,4 @@ function clust2labels(clusters::Vector{Cluster},glob::Params)
 end
 
     
+
