@@ -4,9 +4,8 @@
 # Licence: MIT
 
 # struct containing global params
-# all changes made to iterate_EM_HM! and iterate_EM_TI!
-# routine_HM and routine_TI are used to add clusters with addNewCluster!. EM algorithm run  once at halfway and once at end
-# bisect_HM and bisect_TI are used for interval bisection
+# all changes made to iterate_EM_HM! and can be applied to remaning iterate functions
+# routine is used to add clusters with addNewCluster!. EM algorithm run  once at halfway and once at end for every run. cluster addition restarts if empty clusters are present at the end
 
 mutable struct Params
     minclustsize::Int64
@@ -1311,7 +1310,7 @@ function bisect_TI!(cl::Vector{Cluster},glob::Params,n::Int,score::Float64)
         cl,ll_ti,nnew,max=routine_TI(cl,glob,N,0)
         while(N!=0)
 		if(N>1)
-			N=div(n,2)
+			N=div(N,2)
 		end
                 if(ll_ti>score)
                         score=ll_ti
@@ -1546,4 +1545,3 @@ function clust2labels(clusters::Vector{Cluster},glob::Params)
 end
 
     
-
