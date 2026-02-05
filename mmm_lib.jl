@@ -1406,7 +1406,7 @@ function iterate_EM_TI!(cl0::Cluster,glob::Params)
 		cl2,ll_ti2=bisect_TI!(Clusters,Glob,n2,ll_ti_last)
 		println("(id_prev,id_best)=",length(cl1),",",ll_ti1)
 		println("(id_best,id_current)=",length(cl2),",",ll_ti2)
-		final,ll_ti=bisect_HM!(cl1,glob,length(cl2)-length(cl1),ll_ti1)
+		final,ll_ti=bisect_TI!(cl1,glob,length(cl2)-length(cl1),ll_ti1)
 		if(ll_ti1<ll_ti2)
 			Clusters=cl2
 			score=ll_ti2
