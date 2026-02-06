@@ -1176,9 +1176,12 @@ end
 
 
 function bisect_HM!(cl::Vector{Cluster},glob::Params,n::Int,score::Float64)
-	N=div(n,2)
-	if(N==0)
+	if(n==1)
 		N=1
+	elseif(n==0)
+		return cl,score
+	else
+		N=div(n,2)
 	end
 	count=0;temp=save_clusters(glob,cl)
 	cl,ll_hm,nnew,max=routine_HM(cl,glob,N,0)
@@ -1276,9 +1279,13 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 	ll_hm_prev=ll_hm_last
 	ll_hm_last=ll_hm
 	length_prev=nnew
-	clusters,ll_hm,nnew,check=routine_HM(clusters,glob,n,0)
+	clusters,ll_hm,nnew,Check=routine_HM(clusters,glob,n,0)
 	if(length_prev==nnew)
 		check=1
+	end
+	if(nnew<length_prev)
+		println("Terminating with #clust=",length(clusters))
+                return clusters
 	end
 	if((ll_hm<=ll_hm_last)||check==1)
 		println("ENTERED")
@@ -1310,6 +1317,10 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 
 	else
 		n=length(clusters)
+		if(n<length(id_best))
+			println("Terminating with #clust=",length(clusters))
+                        return clusters
+		end
 		Clusters=deepcopy(clusters);Glob=deepcopy(glob)
 		restore_clusters!(Glob,Clusters,id_best)
 		id_prev=save_clusters(Glob,Clusters)
@@ -1320,11 +1331,14 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 end
 
 function bisect_TI!(cl::Vector{Cluster},glob::Params,n::Int,score::Float64)
-        N=div(n,2)
-	if(N==0)
-		N=1
-	end
-        count=0;temp=save_clusters(glob,cl)
+	if(n==1)
+                N=1
+        elseif(n==0)
+                return cl,score
+        else
+                N=div(n,2)
+        end
+	count=0;temp=save_clusters(glob,cl)
         cl,ll_ti,nnew,max=routine_TI(cl,glob,N,0)
         while(N!=0)
 		if(N>1)
@@ -1369,7 +1383,6 @@ function routine_TI(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
             		println("Empty clusters present")
             		println("Cluster length after cleaning: ", length(cl))
             		MAX=abs(L-length(cl))
-			check=1
         	   end
 		   println("1/2 way point EM")
 		end
@@ -1381,7 +1394,7 @@ function routine_TI(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
             clean!(cl,glob)
             println("Empty clusters present")
 	    println("Cluster length after cleaning: ", length(cl))
-            MAX=abs(L-length(cl)) 
+            MAX=abs(L-length(cl))
 	    check=1
         end
     nnew=length(cl)
@@ -1420,10 +1433,14 @@ function iterate_EM_TI!(cl0::Cluster,glob::Params)
 	ll_ti_prev=ll_ti_last
 	ll_ti_last=ll_ti
 	length_prev=nnew
-	clusters,ll_ti,nnew,check=routine_TI(clusters,glob,n,0)
+	clusters,ll_ti,nnew,Check=routine_TI(clusters,glob,n,0)
 	if(length_prev==nnew)
 		check=1
 	end
+	if(nnew<length_prev)
+                println("Terminating with #clust=",length(clusters))
+                return clusters
+        end
 	if((ll_ti<=ll_ti_last)||check==1)
 		println("ENTERED")
 		println("length of id_prev=",length(id_prev),"length of id_best=",length(id_best),"length of id_current=",length(clusters))
@@ -1453,7 +1470,11 @@ function iterate_EM_TI!(cl0::Cluster,glob::Params)
 
 	else
 		n=length(clusters)
-		Clusters=deepcopy(clusters);Glob=deepcopy(glob)
+		if(n<length(id_best))
+                        println("Terminating with #clust=",length(clusters))
+                        return clusters
+                end
+                Clusters=deepcopy(clusters);Glob=deepcopy(glob)
 		restore_clusters!(Glob,Clusters,id_best)
 		id_prev=save_clusters(Glob,Clusters)
 		id_best=save_clusters(glob,clusters)
