@@ -1177,22 +1177,35 @@ end
 
 function bisect_HM!(cl::Vector{Cluster},glob::Params,n::Int,score::Float64)
 	N=div(n,2)
-	temp=save_clusters(glob,cl)
+	if(N==0)
+		N=1
+	end
+	count=0;temp=save_clusters(glob,cl)
 	cl,ll_hm,nnew,max=routine_HM(cl,glob,N,0)
 	while(N!=0)
 		if(N>1)
 			N=div(N,2)
 		end
 		if(ll_hm>score)
+			if(N==1)
+				count=count+1
+			end
+			if(count>=2)
+				N=0
+			end
 			score=ll_hm
 			temp=save_clusters(glob,cl)
 			cl,ll_hm,nnew,max=routine_HM(cl,glob,N,0)
 		else
+			if(N==1)
+                                count=count+1
+                        end
+                        if(count>=2)
+                                N=0
+                        end
+
 			restore_clusters!(glob,cl,temp)
 			cl,ll_hm,nnew,max=routine_HM(cl,glob,N,0)
-		end
-		if(N==1)
-			N=0
 		end
 	end
 	return cl,ll_hm
@@ -1202,7 +1215,7 @@ end
 # routine is used to add clusters.
 function routine_HM(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
     l=min(length(cl),n)
-    temp=save_clusters(glob,cl);L=length(cl)
+    check=0;L=length(cl)
     println("Number of clusters to be added: ", n)
             for i in 1:l
 		addNewCluster!(cl,glob)
@@ -1213,6 +1226,7 @@ function routine_HM(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
             		println("Empty clusters present")
             		println("Cluster length after cleaning: ", length(cl))
             		MAX=abs(L-length(cl))
+			check=1
         	   end
 		   println("1/2 way point EM")
 		end
@@ -1224,7 +1238,8 @@ function routine_HM(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
             clean!(cl,glob)
             println("Empty clusters present")
 	    println("Cluster length after cleaning: ", length(cl))
-            MAX=abs(L-length(cl))         
+            MAX=abs(L-length(cl))
+	    check=1
         end
     nnew=length(cl)
     println("Final cluster length: ", length(cl))
@@ -1236,7 +1251,7 @@ function routine_HM(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
       println("iterate_EM_HM aftersample #clust=", length(cl), " llr=",llr," llbest=",ll_best," ll_hm=",ll_hm)
     end
     flush(stdout)
-    return cl,ll_hm,nnew,MAX
+    return cl,ll_hm,nnew,check
 end
 
 
@@ -1261,7 +1276,7 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 	ll_hm_prev=ll_hm_last
 	ll_hm_last=ll_hm
 	length_prev=nnew
-	clusters,ll_hm,nnew,max=routine_HM(clusters,glob,n,0)
+	clusters,ll_hm,nnew,check=routine_HM(clusters,glob,n,0)
 	if(length_prev==nnew)
 		check=1
 	end
@@ -1306,23 +1321,35 @@ end
 
 function bisect_TI!(cl::Vector{Cluster},glob::Params,n::Int,score::Float64)
         N=div(n,2)
-        temp=save_clusters(glob,cl)
+	if(N==0)
+		N=1
+	end
+        count=0;temp=save_clusters(glob,cl)
         cl,ll_ti,nnew,max=routine_TI(cl,glob,N,0)
         while(N!=0)
 		if(N>1)
 			N=div(N,2)
 		end
                 if(ll_ti>score)
+			if(N==1)
+				count=count+1
+			end
+			if(count>=2)
+				N=0
+			end
                         score=ll_ti
                         temp=save_clusters(glob,cl)
                         cl,ll_ti,nnew,max=routine_TI(cl,glob,N,0)
                 else
+			if(N==1)
+				count=count+1
+			end
+			if(count>=2)
+				N=0
+			end
                         restore_clusters!(glob,cl,temp)
                         cl,ll_ti,nnew,max=routine_TI(cl,glob,N,0)
                 end
-		if(N==1)
-			N=0
-		end
         end
         return cl,ll_ti
 end
@@ -1331,7 +1358,7 @@ end
 # routine is used to add clusters.
 function routine_TI(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
     l=min(length(cl),n)
-    temp=save_clusters(glob,cl);L=length(cl)
+    L=length(cl);check=0
     println("Number of clusters to be added: ", n)
             for i in 1:l
 		addNewCluster!(cl,glob)
@@ -1342,6 +1369,7 @@ function routine_TI(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
             		println("Empty clusters present")
             		println("Cluster length after cleaning: ", length(cl))
             		MAX=abs(L-length(cl))
+			check=1
         	   end
 		   println("1/2 way point EM")
 		end
@@ -1353,7 +1381,8 @@ function routine_TI(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
             clean!(cl,glob)
             println("Empty clusters present")
 	    println("Cluster length after cleaning: ", length(cl))
-            MAX=abs(L-length(cl))         
+            MAX=abs(L-length(cl)) 
+	    check=1
         end
     nnew=length(cl)
     println("Final cluster length: ", length(cl))
@@ -1365,7 +1394,7 @@ function routine_TI(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
       println("iterate_EM_HM aftersample #clust=", length(cl), " llr=",llr," ll_ti=",ll_ti)
     end
     flush(stdout)
-    return cl,ll_ti,nnew,MAX
+    return cl,ll_ti,nnew,check
 end
 
 
@@ -1391,7 +1420,7 @@ function iterate_EM_TI!(cl0::Cluster,glob::Params)
 	ll_ti_prev=ll_ti_last
 	ll_ti_last=ll_ti
 	length_prev=nnew
-	clusters,ll_ti,nnew,max=routine_TI(clusters,glob,n,0)
+	clusters,ll_ti,nnew,check=routine_TI(clusters,glob,n,0)
 	if(length_prev==nnew)
 		check=1
 	end
