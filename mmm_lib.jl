@@ -841,7 +841,7 @@ function find_ids!(clusters::Vector{Cluster}, glob::Params)
 	return indices
 end
 
-function two_split!(clusters::Vector{Cluster}, idx::Int, glob::Params)
+function two_split!(clusters::Vector{Cluster}, idx::Int, glob::Params,M::Int)
         newclust=setupNullCluster(glob)
         newclust.clustid=length(clusters)+1
         seqscorelist=Tuple{Float64,Int64}[]
@@ -853,10 +853,9 @@ function two_split!(clusters::Vector{Cluster}, idx::Int, glob::Params)
                 pushCluster!(clusters[c],n,glob)
             end
         end
-        nbadids = convert(Int64,round(length(seqscorelist)/2*0.9))
-	# nbadids=convert(Int64,round(length(seqscorelist)*0.99))
-        sseqscorelist=sort(seqscorelist, by = x -> x[1])
-        badids=[n for (_, n) in sseqscorelist[1:nbadids]]
+	nbadids = convert(Int64,round(length(seqscorelist)/newclust.clustid*0.9))
+    	badids = [n for (c,n) in seqscorelist[1:nbadids]]
+
         for n in 1:glob.nrows
             if n in badids
                 spliceCluster!(clusters[glob.rowcluster[n]],n,glob)
@@ -1222,18 +1221,7 @@ function routine_HM(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
     println("Number of clusters to be added: ", n)
             for i in 1:l
 		addNewCluster!(cl,glob)
-		if (i==floor(Int,l/2))                      # halfway point EM
-  	           optimizeClusters_EM!(glob,cl)
-		   if (any(map(x->x.nrows==0,cl)))                    # empty clusters checked here
-            		clean!(cl,glob)
-            		println("Empty clusters present")
-            		println("Cluster length after cleaning: ", length(cl))
-            		MAX=abs(L-length(cl))
-			check=1
-        	   end
-		   println("1/2 way point EM")
-		end
-            end
+	    end
          println("Cluster length after addition: ", length(cl))
          optimizeClusters_EM!(glob,cl)
          println("EM check")
@@ -1266,30 +1254,48 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
     end
     ll_hm_best = ll_hm
     ll_hm_last = -10000000000.0
-    ll_hm_prev = -20000000000.0
+    ll_hm_prev = -10000000000.0
+    ll_hm_Prev = -10000000000.0
     id_best = save_clusters(glob,[cl0])
     id_prev = save_clusters(glob,[cl0])
+    id_last = save_clusters(glob,[cl0])
     llr_last = llr
     clusters = [cl0]
     n=1;check=0;nnew=length(clusters)
+    diff_last=0;diff=0;count=0;Count=0;
     while (ll_hm>=ll_hm_last)
 	if glob.debug
             println("iterate_EM_HM #clust=", length(clusters), " llr=",llr," ll_hm=",ll_hm)
         end
+	ll_hm_Prev=ll_hm_prev
 	ll_hm_prev=ll_hm_last
 	ll_hm_last=ll_hm
 	length_prev=nnew
-	clusters,ll_hm,nnew,Check=routine_HM(clusters,glob,n,0)
-	if(length_prev==nnew)
+	clusters,ll_hm,nnew,Check=routine_HM(clusters,glob,n,1)
+	if(Check==1)
+		Count=Count+1
+	end
+	if(n>4)
+		diff_last=ll_hm_last-ll_hm_prev;println(diff_last)
+		diff=ll_hm-ll_hm_last;println(diff)
+	end
+	if(diff<=diff_last && 4<n)
+		count=count+1
+	end
+	if(length_prev==nnew || Count>=2 && count>=2)
 		check=1
 	end
 	if(nnew<length_prev)
-		println("Terminating with #clust=",length(clusters))
-                return clusters
+		L=length(clusters)
+		restore_clusters!(glob,clusters,id_prev)
+		n=L-length(clusters)
+		cl,ll_hm=bisect_HM!(clusters,glob,n,ll_hm_prev)
+		println("Exit1 Terminating with #clust=",length(cl))
+                return cl
 	end
-	if((ll_hm<=ll_hm_last)||check==1)
+	if((ll_hm<=ll_hm_last)||(check==1))
 		println("ENTERED")
-		println("length of id_prev=",length(id_prev),"length of id_best=",length(id_best),"length of id_current=",length(clusters))
+		println("length of id_last=",length(id_last),"length of id_prev=",length(id_prev),"length of id_best=",length(id_best),"length of id_current=",length(clusters))
 		n1=length(id_best)-length(id_prev)
 		n2=length(clusters)-length(id_best)
 		Clusters=deepcopy(clusters);Glob=deepcopy(glob)
@@ -1303,27 +1309,38 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 			Clusters=cl2
 			score=ll_hm2
 		else
-
 			Clusters=cl1
 			score=ll_hm1
 		end
 		if(ll_hm<score)
-			println("Terminating with #clust=",length(Clusters))
-			return Clusters
+			temp=Clusters
 		else
-			println("Terminating with #clust=",length(final))
-                        return final
+			temp=final
+			score=ll_hm
+		end
+		L=length(temp);Temp=deepcopy(temp)
+		restore_clusters!(glob,final,id_last)
+		Final,ll_hm3=bisect_HM!(final,glob,L-length(final),ll_hm_Prev)
+		if(score<ll_hm3)
+			println("Terminating with #clust=",length(Final))
+                	return Final
+		else
+			println("Terminating with #clust=",length(Temp))
+                        return Temp
 		end
 
 	else
 		n=length(clusters)
 		if(n<length(id_best))
-			println("Terminating with #clust=",length(clusters))
+			println("Exit2 Terminating with #clust=",length(clusters))
                         return clusters
 		end
 		Clusters=deepcopy(clusters);Glob=deepcopy(glob)
 		restore_clusters!(Glob,Clusters,id_best)
-		id_prev=save_clusters(Glob,Clusters)
+		id_prev_temp=save_clusters(Glob,Clusters)
+		restore_clusters!(Glob,Clusters,id_prev)
+		id_last=save_clusters(Glob,Clusters)
+		id_prev=id_prev_temp
 		id_best=save_clusters(glob,clusters)
 	end
     end
@@ -1375,17 +1392,7 @@ function routine_TI(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
     L=length(cl);check=0
     println("Number of clusters to be added: ", n)
             for i in 1:l
-		addNewCluster!(cl,glob)
-		if (i==floor(Int,l/2))                      # halfway point EM
-  	           optimizeClusters_EM!(glob,cl)
-		   if (any(map(x->x.nrows==0,cl)))                    # empty clusters checked here
-            		clean!(cl,glob)
-            		println("Empty clusters present")
-            		println("Cluster length after cleaning: ", length(cl))
-            		MAX=abs(L-length(cl))
-        	   end
-		   println("1/2 way point EM")
-		end
+		addNewCluster!(cl,glob)	
             end
          println("Cluster length after addition: ", length(cl))
          optimizeClusters_EM!(glob,cl)
@@ -1452,6 +1459,13 @@ function iterate_EM_TI!(cl0::Cluster,glob::Params)
 		cl2,ll_ti2=bisect_TI!(Clusters,Glob,n2,ll_ti_last)
 		println("(id_prev,id_best)=",length(cl1),",",ll_ti1)
 		println("(id_best,id_current)=",length(cl2),",",ll_ti2)
+		if( ll_hm1<ll_hm2 && abs(length(cl1)-length(cl2))<2)
+                        println("Terminating with #clust=",length(cl2))
+                        return cl2
+                elseif( ll_hm2<=ll_hm1 && abs(length(cl1)-length(cl2))<2)
+                        println("Terminating with #clust=",length(cl1))
+                        return cl1
+                end
 		final,ll_ti=bisect_TI!(cl1,glob,length(cl2)-length(cl1),ll_ti1)
 		if(ll_ti1<ll_ti2)
 			Clusters=cl2
