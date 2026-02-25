@@ -1205,8 +1205,11 @@ function bisect_HM!(cl::Vector{Cluster},glob::Params,n::Int,score::Float64)
                         if(count>=2)
                                 N=0
                         end
-
-			restore_clusters!(glob,cl,temp)
+			if(length(temp)<=length(cl))
+				restore_clusters!(glob,cl,temp)
+			else
+				return cl,ll_hm
+			end
 			cl,ll_hm,nnew,max=routine_HM(cl,glob,N,0)
 		end
 	end
@@ -1297,6 +1300,14 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 	if((ll_hm<ll_hm_last)||(check==1))
 		println("ENTERED")
 		println("length of id_last=",length(id_last),"length of id_prev=",length(id_prev),"length of id_best=",length(id_best),"length of id_current=",length(clusters))
+		if(check==1)
+			TEMP=deepcopy(id_prev)
+			id_best=TEMP
+			id_prev=id_last
+			store=ll_hm_prev
+			ll_hm_prev=ll_hm_Prev
+			ll_hm_last=store
+		end
 		n1=length(id_best)-length(id_prev)
 		n2=length(clusters)-length(id_best)
 		Clusters=deepcopy(clusters);Glob=deepcopy(glob)
@@ -1319,26 +1330,24 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 			temp=final
 			score=ll_hm
 		end
-		println("Terminating with #clust=",length(temp))
-                return temp
-
-		#=
-		L=length(temp);Temp=deepcopy(temp)
-		restore_clusters!(glob,final,id_last)
-		Final,ll_hm3=bisect_HM!(final,glob,L-length(final),ll_hm_Prev)
-		if(score<ll_hm3)
-			println("Terminating with #clust=",length(Final))
-                	return Final
+		if(check==1)
+			println("Terminating with #clust=",length(temp))
+                        return temp
 		else
-			println("Terminating with #clust=",length(Temp))
-                        return Temp
+			L=length(temp);Temp=deepcopy(temp)
+			restore_clusters!(glob,final,id_last)
+			Final,ll_hm3=bisect_HM!(final,glob,L-length(final),ll_hm_Prev)
+			if(score<ll_hm3)
+				println("Terminating with #clust=",length(Final))
+                		return Final
+			else
+				println("Terminating with #clust=",length(Temp))
+                        	return Temp
+			end
 		end
-		=#
+		
 	else
-		n=cld(length(clusters),2)
-		if(n==0)
-			n=1
-		end
+		n=length(clusters)
 		if(go==1)
 			n=fact*n
 			n=ceil(Int,n)
