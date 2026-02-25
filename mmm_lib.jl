@@ -1262,7 +1262,7 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
     llr_last = llr
     clusters = [cl0]
     n=1;check=0;nnew=length(clusters)
-    diff_last=0;diff=0;count=0;Count=0;
+    diff_last=0;diff=0;count=0;Count=0;fact=0.0;go=0
     while (ll_hm>=ll_hm_last)
 	if glob.debug
             println("iterate_EM_HM #clust=", length(clusters), " llr=",llr," ll_hm=",ll_hm)
@@ -1280,9 +1280,10 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 		diff=ll_hm-ll_hm_last;println(diff)
 	end
 	if(diff<=diff_last && 4<n)
-		count=count+1
+		fact=1.0-((diff_last-diff)/diff_last)
+		go=1
 	end
-	if(length_prev==nnew || Count>=2 && count>=2)
+	if(length_prev==nnew)
 		check=1
 	end
 	if(nnew<length_prev)
@@ -1293,7 +1294,7 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 		println("Exit1 Terminating with #clust=",length(cl))
                 return cl
 	end
-	if((ll_hm<=ll_hm_last)||(check==1))
+	if((ll_hm<ll_hm_last)||(check==1))
 		println("ENTERED")
 		println("length of id_last=",length(id_last),"length of id_prev=",length(id_prev),"length of id_best=",length(id_best),"length of id_current=",length(clusters))
 		n1=length(id_best)-length(id_prev)
@@ -1318,6 +1319,10 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 			temp=final
 			score=ll_hm
 		end
+		println("Terminating with #clust=",length(temp))
+                return temp
+
+		#=
 		L=length(temp);Temp=deepcopy(temp)
 		restore_clusters!(glob,final,id_last)
 		Final,ll_hm3=bisect_HM!(final,glob,L-length(final),ll_hm_Prev)
@@ -1328,10 +1333,18 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 			println("Terminating with #clust=",length(Temp))
                         return Temp
 		end
-
+		=#
 	else
-		n=length(clusters)
-		if(n<length(id_best))
+		n=cld(length(clusters),2)
+		if(n==0)
+			n=1
+		end
+		if(go==1)
+			n=fact*n
+			n=ceil(Int,n)
+		end
+		N=length(clusters)
+		if(N<length(id_best))
 			println("Exit2 Terminating with #clust=",length(clusters))
                         return clusters
 		end
