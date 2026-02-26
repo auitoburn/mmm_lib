@@ -1182,36 +1182,36 @@ function bisect_HM!(cl::Vector{Cluster},glob::Params,n::Int,score::Float64)
 	else
 		N=div(n,2)
 	end
-	count=0;temp=save_clusters(glob,cl)
+	check=0;count=0;temp=save_clusters(glob,cl)
 	cl,ll_hm,nnew,max=routine_HM(cl,glob,N,0)
-	while(N!=0)
+	while(count<3)
 		if(N>1)
 			N=div(N,2)
+		else
+			count=count+1
+			println("count=",count)
 		end
-		if(ll_hm>score)
-			if(N==1)
-				count=count+1
-			end
-			if(count>=2)
-				N=0
-			end
+		if(ll_hm>=score)
+			check=0
 			score=ll_hm
 			temp=save_clusters(glob,cl)
-			cl,ll_hm,nnew,max=routine_HM(cl,glob,N,0)
+			if(count<=1)
+				cl,ll_hm,nnew,max=routine_HM(cl,glob,N,0)
+			end
 		else
-			if(N==1)
-                                count=count+1
-                        end
-                        if(count>=2)
-                                N=0
-                        end
+			check=1
 			if(length(temp)<=length(cl))
 				restore_clusters!(glob,cl,temp)
 			else
 				return cl,ll_hm
 			end
-			cl,ll_hm,nnew,max=routine_HM(cl,glob,N,0)
+			if(count<=1)
+				cl,ll_hm,nnew,max=routine_HM(cl,glob,N,0)
+			end
 		end
+	end
+	if(check==1)
+		ll_hm=score
 	end
 	return cl,ll_hm
 end
@@ -1219,33 +1219,37 @@ end
 
 # routine is used to add clusters.
 function routine_HM(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
-    l=min(length(cl),n)
-    check=0;L=length(cl)
-    println("Number of clusters to be added: ", n)
-            for i in 1:l
+	l=min(length(cl),n)
+    	check=0;L=length(cl)
+    	println("Number of clusters to be added: ", n)
+    	for i in 1:l
 		addNewCluster!(cl,glob)
-	    end
-         println("Cluster length after addition: ", length(cl))
-         optimizeClusters_EM!(glob,cl)
-         println("EM check")
-         if (any(map(x->x.nrows==0,cl)))                    # empty clusters checked here
-            clean!(cl,glob)
-            println("Empty clusters present")
-	    println("Cluster length after cleaning: ", length(cl))
-            MAX=abs(L-length(cl))
-	    check=1
-        end
-    nnew=length(cl)
-    println("Final cluster length: ", length(cl))
-    llr = sum([clusterLikelihood(glob,c) for c in cl])
-    id = save_clusters(glob,cl)
-    counts,ll_hm,ll_best,clusterids = sampleClusters_HM(glob,cl)
-    restore_clusters!(glob,cl,id)
-    if glob.debug
-      println("iterate_EM_HM aftersample #clust=", length(cl), " llr=",llr," llbest=",ll_best," ll_hm=",ll_hm)
-    end
-    flush(stdout)
-    return cl,ll_hm,nnew,check
+	end
+        println("Cluster length after addition: ", length(cl))
+        optimizeClusters_EM!(glob,cl)
+        println("EM check")
+        if (any(map(x->x.nrows==0,cl)))                    # empty clusters checked here
+		clean!(cl,glob)
+            	println("Empty clusters present")
+	    	println("Cluster length after cleaning: ", length(cl))
+            	MAX=abs(L-length(cl))
+	 	if(MAX==0)
+	    		check=1
+	    	elseif(div(n,MAX)>2)
+		    	check=1
+		end
+	end
+    	nnew=length(cl)
+    	println("Final cluster length: ", length(cl))
+    	llr = sum([clusterLikelihood(glob,c) for c in cl])
+    	id = save_clusters(glob,cl)
+    	counts,ll_hm,ll_best,clusterids = sampleClusters_HM(glob,cl)
+    	restore_clusters!(glob,cl,id)
+    	if glob.debug
+      		println("iterate_EM_HM aftersample #clust=", length(cl), " llr=",llr," llbest=",ll_best," ll_hm=",ll_hm)
+    	end
+    	flush(stdout)
+    	return cl,ll_hm,nnew,check
 end
 
 
@@ -1274,10 +1278,7 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 	ll_hm_prev=ll_hm_last
 	ll_hm_last=ll_hm
 	length_prev=nnew
-	clusters,ll_hm,nnew,Check=routine_HM(clusters,glob,n,1)
-	if(Check==1)
-		Count=Count+1
-	end
+	clusters,ll_hm,nnew,check=routine_HM(clusters,glob,n,1)
 	if(n>4)
 		diff_last=ll_hm_last-ll_hm_prev;println(diff_last)
 		diff=ll_hm-ll_hm_last;println(diff)
@@ -1290,32 +1291,52 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 		check=1
 	end
 	if(nnew<length_prev)
-		L=length(clusters)
+		L=length(clusters);score=ll_hm
+		Clusters=deepcopy(clusters)
 		restore_clusters!(glob,clusters,id_prev)
 		n=L-length(clusters)
 		cl,ll_hm=bisect_HM!(clusters,glob,n,ll_hm_prev)
-		println("Exit1 Terminating with #clust=",length(cl))
-                return cl
+		if(ll_hm>score)
+			println("Exit1 Terminating with #clust=",length(cl))
+                	return cl
+		else
+			println("Exit1 Terminating with #clust=",length(Clusters))
+                        return Clusters
+		end
 	end
 	if((ll_hm<ll_hm_last)||(check==1))
 		println("ENTERED")
 		println("length of id_last=",length(id_last),"length of id_prev=",length(id_prev),"length of id_best=",length(id_best),"length of id_current=",length(clusters))
-		if(check==1)
-			TEMP=deepcopy(id_prev)
-			id_best=TEMP
-			id_prev=id_last
-			store=ll_hm_prev
-			ll_hm_prev=ll_hm_Prev
-			ll_hm_last=store
-		end
 		n1=length(id_best)-length(id_prev)
 		n2=length(clusters)-length(id_best)
 		Clusters=deepcopy(clusters);Glob=deepcopy(glob)
+		Clusters2=deepcopy(clusters);Glob2=deepcopy(glob)
 		restore_clusters!(glob,clusters,id_prev);restore_clusters!(Glob,Clusters,id_best)
+		Clusters1=deepcopy(Clusters);Glob1=deepcopy(Glob)
 		cl1,ll_hm1=bisect_HM!(clusters,glob,n1,ll_hm_prev)
 		cl2,ll_hm2=bisect_HM!(Clusters,Glob,n2,ll_hm_last)
+		if(ll_hm>ll_hm2)
+			cl2=Clusters2
+			Glob=Glob2
+			ll_hm2=ll_hm
+		end
+		if(ll_hm_last>ll_hm1)
+			cl1=Clusters1
+			glob=Glob1
+			ll_hm1=ll_hm_last
+		end
 		println("(id_prev,id_best)=",length(cl1),",",ll_hm1)
 		println("(id_best,id_current)=",length(cl2),",",ll_hm2)
+		if(length(cl1)==length(cl2))
+			if(ll_hm1<ll_hm2)
+				temp=cl1
+				score=ll_hm1
+			else
+				temp=cl2
+				score=ll_hm2
+				glob=Glob
+			end
+		else
 		final,ll_hm=bisect_HM!(cl1,glob,length(cl2)-length(cl1),ll_hm1)
 		if(ll_hm1<ll_hm2)
 			Clusters=cl2
@@ -1330,20 +1351,16 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
 			temp=final
 			score=ll_hm
 		end
-		if(check==1)
-			println("Terminating with #clust=",length(temp))
-                        return temp
+		end
+		L=length(temp);Temp=deepcopy(temp)
+		restore_clusters!(glob,temp,id_last)
+		Final,ll_hm3=bisect_HM!(temp,glob,L-length(temp),ll_hm_Prev)
+		if(score<=ll_hm3)
+			println("Terminating with #clust=",length(Final),"ll_hm=",ll_hm3)
+                	return Final
 		else
-			L=length(temp);Temp=deepcopy(temp)
-			restore_clusters!(glob,final,id_last)
-			Final,ll_hm3=bisect_HM!(final,glob,L-length(final),ll_hm_Prev)
-			if(score<ll_hm3)
-				println("Terminating with #clust=",length(Final))
-                		return Final
-			else
-				println("Terminating with #clust=",length(Temp))
-                        	return Temp
-			end
+			println("Terminating with #clust=",length(Temp),"ll_hm=",score)
+                        return Temp
 		end
 		
 	else
