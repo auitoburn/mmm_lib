@@ -659,6 +659,74 @@ end
 ## not the max likelihood; with a fictitious temperature β that is increased
 ## slowly (simulated annealing). 
 
+function optimizeClusters_EM_one!(glob::Params, clusters::Vector{Cluster})
+    # sanity check on clusters
+    nc = length(clusters)
+    for c = 1:nc
+        if clusters[c].clustid != c
+            error("optimmizeClusters_EM_one ERROR cluster IDs don't match: cluster ", c, " has id ", clusters[c].clustid, "\n")
+        end
+        for n in 1:glob.nrows
+            if clusters[c].rows[n] && glob.rowcluster[n] != c
+                error("optimmizeClusters_EM_one ERROR row ", n, "'s row index doesn't match its cluster ", c, "\n")
+            end
+        end
+    end
+
+    nrows = glob.nrows
+    nc = length(clusters)
+
+    # π[i][j] = posterior prob. that i'th seq is in j'th cluster
+    π = fill(1.0/nc, nc, nrows)
+    π1 = fill(1.0/nc, nc, nrows)
+
+   
+    π1 .= 1.0/nc
+    for n = 1:nrows
+        cl = clusters[glob.rowcluster[n]]
+        if cl.nrows < 100
+            spliceCluster!(cl, n, glob)
+        end
+        for c2 = 1:nc
+            π1[c2, n] = log(π[c2, n]) + rowLikelihood(n, clusters[c2], glob)
+        end
+        if cl.nrows < 100
+            pushCluster!(cl, n, glob)
+        end
+    end
+
+    # exponentiate & normalize
+    for n = 1:nrows
+        maxπ1 = maximum(@view π1[:, n])
+        for x = 1:nc
+            π1[x, n] = exp(π1[x, n] - maxπ1)
+        end
+        πs = sum(@view π1[:, n])
+        for x = 1:nc
+            π1[x, n] /= πs
+        end
+    end
+
+    # assign each sequence to its most probable cluster
+    for n = 1:nrows
+        c_old = glob.rowcluster[n]
+        pmax = maximum(@view π1[:, n])
+        newc = findall(x -> x == pmax, @view π1[:, n])
+        if length(newc) == 0
+            println("optimizeClusters_EM_one: ", π1, " ", n)
+            println("optimizeClusters_EM_one: ", pmax, " ", π1[:, n])
+            error("optimizeClusters_EM_one: no clusters?")
+        end
+        if ~(c_old in newc)
+            c_new = rand(newc)
+            spliceCluster!(clusters[c_old], n, glob)
+            pushCluster!(clusters[c_new], n, glob)
+        end
+    end
+
+    # update π (optional, if you need for later)
+    π .= π1
+end
 
 function optimizeClusters_EM!(glob::Params, clusters::Vector{Cluster})
     # sanity check on clusters
@@ -771,7 +839,7 @@ function getNclusters!(clusters::Vector{Cluster},glob::Params)
 end
 
 
-function addNewCluster!(clusters::Vector{Cluster},glob::Params)
+function addNewCluster!(clusters::Vector{Cluster},glob::Params,check::Int)
     # add a new cluster from worst sequences of other clusters, prior to EM
     newclust = setupNullCluster(glob)
     newclust.clustid = length(clusters)+1
@@ -788,16 +856,25 @@ function addNewCluster!(clusters::Vector{Cluster},glob::Params)
         push!(seqscorelist,(rowLikelihood(n,clusters[c],glob),n))
         pushCluster!(clusters[c],n,glob)
     end
-    nbadids = convert(Int64,round(length(seqscorelist)/newclust.clustid*0.9))
-    #badids = [n for (c,n) in seqscorelist[1:length(seqscorelist)÷newclust.clustid]]
-    badids = [n for (c,n) in seqscorelist[1:nbadids]]
-    for n in 1:glob.nrows
-        if n in badids
-            spliceCluster!(clusters[glob.rowcluster[n]],n,glob)
-            pushCluster!(newclust,n,glob)
-        end
+     nbadids = convert(Int64,round(length(seqscorelist)/newclust.clustid*0.9))
+     sort!(seqscorelist, by = x -> x[1])
+     badids = [n for (c,n) in seqscorelist[1:nbadids]]
+    if(check==0)
+        
+        	n = seqscorelist[1][2]
+        	spliceCluster!(clusters[glob.rowcluster[n]], n, glob)
+        	pushCluster!(newclust, n, glob)
+    
+	push!(clusters,newclust)
+    else
+    	for n in 1:glob.nrows
+       		if n in badids
+           		spliceCluster!(clusters[glob.rowcluster[n]],n,glob)
+           		pushCluster!(newclust,n,glob)
+       		end
+    	end
+    	push!(clusters,newclust)
     end
-    push!(clusters,newclust)
 end
 
 function addNewCluster_one!(clusters::Vector{Cluster},glob::Params, c::Int64)
@@ -841,7 +918,7 @@ function find_ids!(clusters::Vector{Cluster}, glob::Params)
 	return indices
 end
 
-function two_split!(clusters::Vector{Cluster}, idx::Int, glob::Params,M::Int)
+function two_split!(clusters::Vector{Cluster}, idx::Int, glob::Params,check::Int)
         newclust=setupNullCluster(glob)
         newclust.clustid=length(clusters)+1
         seqscorelist=Tuple{Float64,Int64}[]
@@ -854,15 +931,23 @@ function two_split!(clusters::Vector{Cluster}, idx::Int, glob::Params,M::Int)
             end
         end
 	nbadids = convert(Int64,round(length(seqscorelist)/newclust.clustid*0.9))
-    	badids = [n for (c,n) in seqscorelist[1:nbadids]]
-
-        for n in 1:glob.nrows
-            if n in badids
-                spliceCluster!(clusters[glob.rowcluster[n]],n,glob)
-                pushCluster!(newclust,n,glob)
-            end
-        end
+     	sort!(seqscorelist, by = x -> x[1])
+     	badids = [n for (c,n) in seqscorelist[1:nbadids]]
+    	if(check==0)
+	        n = seqscorelist[1][2]
+                spliceCluster!(clusters[glob.rowcluster[n]], n, glob)
+                pushCluster!(newclust, n, glob)
+		push!(clusters,newclust)
+    	else
+        	for n in 1:glob.nrows
+                	if n in badids
+                        	spliceCluster!(clusters[glob.rowcluster[n]],n,glob)
+                        	pushCluster!(newclust,n,glob)
+                	end
+        	end
         push!(clusters,newclust)
+    	end
+
 end
 
 function clean!(clusters::Vector{Cluster},glob::Params)
@@ -1174,7 +1259,7 @@ function sampleClusters_TI(glob::Params, clusters::Vector{Cluster})
 end
 
 
-function bisect_HM!(cl::Vector{Cluster},glob::Params,n::Int,score::Float64)
+function bisect_HM!(cl::Vector{Cluster},glob::Params,n::Int,score::Float64,CHECK::Int)
 	if(n==1)
 		N=1
 	elseif(n==0)
@@ -1183,7 +1268,7 @@ function bisect_HM!(cl::Vector{Cluster},glob::Params,n::Int,score::Float64)
 		N=div(n,2)
 	end
 	check=0;count=0;temp=save_clusters(glob,cl)
-	cl,ll_hm,nnew,max=routine_HM(cl,glob,N,0)
+	cl,ll_hm,nnew=routine_HM(cl,glob,N,CHECK,1)
 	while(count<3)
 		if(N>1)
 			N=div(N,2)
@@ -1196,7 +1281,7 @@ function bisect_HM!(cl::Vector{Cluster},glob::Params,n::Int,score::Float64)
 			score=ll_hm
 			temp=save_clusters(glob,cl)
 			if(count<=1)
-				cl,ll_hm,nnew,max=routine_HM(cl,glob,N,0)
+				cl,ll_hm,nnew=routine_HM(cl,glob,N,CHECK,1)
 			end
 		else
 			check=1
@@ -1206,7 +1291,7 @@ function bisect_HM!(cl::Vector{Cluster},glob::Params,n::Int,score::Float64)
 				return cl,ll_hm
 			end
 			if(count<=1)
-				cl,ll_hm,nnew,max=routine_HM(cl,glob,N,0)
+				cl,ll_hm,nnew=routine_HM(cl,glob,N,CHECK,1)
 			end
 		end
 	end
@@ -1218,27 +1303,24 @@ end
 
 
 # routine is used to add clusters.
-function routine_HM(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
-	l=min(length(cl),n)
-    	check=0;L=length(cl);Check=0
+function routine_HM(cl::Vector{Cluster},glob::Params,n::Int,Go::Int,Check::Int)
     	println("Number of clusters to be added: ", n)
-    	for i in 1:n
-		addNewCluster!(cl,glob)
+	for i in 1:n
+		addNewCluster!(cl,glob,Go)
+		if(Go==0)
+			optimizeClusters_EM_one!(glob,cl)
+			if (any(map(x->x.nrows==0,cl)))
+                        	clean!(cl,glob)
+                	end
+		end
 	end
         println("Cluster length after addition: ", length(cl))
         optimizeClusters_EM!(glob,cl)
         println("EM check")
-        if (any(map(x->x.nrows==0,cl)))    # empty clusters checked here
-		Check=1
+	if (any(map(x->x.nrows==0,cl)))  
 		clean!(cl,glob)
             	println("Empty clusters present")
 	    	println("Cluster length after cleaning: ", length(cl))
-            	MAX=abs(L-length(cl))
-	 	if(MAX==0)
-	    		check=1
-		elseif((n/MAX)>=1.5)
-		    	check=1
-		end
 	end
     	nnew=length(cl)
     	println("Final cluster length: ", length(cl))
@@ -1250,26 +1332,29 @@ function routine_HM(cl::Vector{Cluster},glob::Params,n::Int,MAX::Int)
       		println("iterate_EM_HM aftersample #clust=", length(cl), " llr=",llr," llbest=",ll_best," ll_hm=",ll_hm)
     	end
     	flush(stdout)
-    	return cl,ll_hm,nnew,check,Check
+    	return cl,ll_hm,nnew
 end
 
-function fixed_HM(cl::Vector{Cluster},glob::Params,n::Int,score::Float64)
+function fixed_HM(cl::Vector{Cluster},glob::Params,n::Int,score::Float64,GO::Int)
 	score_last=score-1.0
 	temp=cl
 	go=1
 	while(score_last<score && go==1)
 		score_last=score
                 temp=save_clusters(glob,cl)
-                cl,score,_,_,check=routine_HM(cl,glob,1,1)
-		if(check==1)
-			go=0
-		end
+                cl,score,_=routine_HM(cl,glob,1,1)
         end
 	restore_clusters!(glob,cl,temp)
         return cl,score_last
 end
 
 function iterate_EM_HM!(cl0::Cluster,glob::Params)
+	clusters,ll_hm=EM_HM!(cl0,glob,0)
+	println("Terminating with #clust=",length(clusters),"ll_hm=",ll_hm)
+        return clusters
+end
+
+function EM_HM!(cl0::Cluster,glob::Params,Check::Int)
     llr = clusterLikelihood(glob,cl0)
     ll_hm = llr
     if glob.debug
@@ -1279,120 +1364,159 @@ function iterate_EM_HM!(cl0::Cluster,glob::Params)
     ll_hm_last = -10000000000.0
     ll_hm_prev = -10000000000.0
     ll_hm_Prev = -10000000000.0
+    ll_hm_PREV = -10000000000.0
+
     id_best = save_clusters(glob,[cl0])
     id_prev = save_clusters(glob,[cl0])
     id_last = save_clusters(glob,[cl0])
+    id_Last = save_clusters(glob,[cl0])
     llr_last = llr
-    clusters = [cl0]
-    n=1;check=0;nnew=length(clusters)
-    diff_last=0;diff=0;count=0;Count=0;fact=0.0;go=0
-    while (ll_hm>=ll_hm_last)
+    clusters = [cl0];cl_temp=deepcopy(clusters);glob_temp=deepcopy(glob)
+    n=1;check=0;nnew=length(clusters);length_prev=length(clusters)
+    diff_last=0;diff=0;fact=0.0;go=0;run=1
+    while (go==0||go==1)
 	if glob.debug
             println("iterate_EM_HM #clust=", length(clusters), " llr=",llr," ll_hm=",ll_hm)
         end
-	ll_hm_Prev=ll_hm_prev
-	ll_hm_prev=ll_hm_last
-	ll_hm_last=ll_hm
-	length_prev=nnew
-	clusters,ll_hm,nnew,check=routine_HM(clusters,glob,n,1)
-	if(n>4)
-		diff_last=ll_hm_last-ll_hm_prev;println(diff_last)
-		diff=ll_hm-ll_hm_last;println(diff)
-	end
-	if(diff<=diff_last && 4<n)
-		fact=1.0-((diff_last-diff)/diff_last)
-		go=1
-	end
-	if(length_prev==nnew)
-		check=1
-	end
-	if(nnew<length_prev)
-		restore_clusters!(glob,clusters,id_prev)
-		cl,ll_hm=fixed_HM(clusters,glob,1,ll_hm_prev)
- 		println("Terminating with #clust=",length(cl),"ll_hm=",ll_hm)
-                return cl
-	end
+	 	ll_hm_PREV=ll_hm_Prev
+                ll_hm_Prev=ll_hm_prev
+                ll_hm_prev=ll_hm_last
+                ll_hm_last=ll_hm
+                length_Prev=length_prev
+                length_prev=nnew
+                clusters,ll_hm,nnew=routine_HM(clusters,glob,n,Check,1)
+#=
+		if(nnew<length_prev)
+                        temp=deepcopy(clusters)
+                        restore_clusters!(glob,clusters,id_last)
+                        cl,score=fixed_HM(clusters,glob,1,ll_hm_Prev,Check)
+                        if(ll_hm<score)
+                                println("Terminating with #clust=",length(cl),"ll_hm=",score)
+                                return cl,score
+                        else
+                                println("Terminating with #clust=",length(temp),"ll_hm=",ll_hm)
+                                return temp,ll_hm
+                        end
+                end
+=#
+                if(n>4 || go==1)
+			L2=2^run-2^(run-1)
+			L1=2^(run-1)-2^(run-2)
+			diff_last=(ll_hm_last-ll_hm_prev)/L1;println(diff_last)
+                	diff=(ll_hm-ll_hm_last)/L2;println(diff)
+                end
+                if(diff<=diff_last && 4<n)
+                        go=1
+                        fact=1.0-((diff_last-diff)/diff_last)
+                end
+
+		if(length_prev==nnew || length(clusters)<length(id_best) || length(clusters)<=length(id_best)+2 && ll_hm<=ll_hm_last)
+                        check=1
+                end
 	if((ll_hm<ll_hm_last)||(check==1))
 		println("ENTERED")
-		println("length of id_last=",length(id_last),"length of id_prev=",length(id_prev),"length of id_best=",length(id_best),"length of id_current=",length(clusters))
-		n1=length(id_best)-length(id_prev)
-		n2=length(clusters)-length(id_best)
-		Clusters=deepcopy(clusters);Glob=deepcopy(glob)
-		Clusters2=deepcopy(clusters);Glob2=deepcopy(glob)
-		restore_clusters!(glob,clusters,id_prev);restore_clusters!(Glob,Clusters,id_best)
-		Clusters1=deepcopy(Clusters);Glob1=deepcopy(Glob)
-		cl1,ll_hm1=bisect_HM!(clusters,glob,n1,ll_hm_prev)
-		cl2,ll_hm2=bisect_HM!(Clusters,Glob,n2,ll_hm_last)
-		if(ll_hm>ll_hm2)
-			cl2=Clusters2
-			Glob=Glob2
-			ll_hm2=ll_hm
-		end
-		if(ll_hm_last>ll_hm1)
-			cl1=Clusters1
-			glob=Glob1
-			ll_hm1=ll_hm_last
+		if(check==1)
+			println("length of id_last=",length(id_Last),"length of id_prev=",length(id_last),"length of id_best=",length(id_prev),"length of id_best=",length(id_best))
+		        n1=length(id_prev)-length(id_last)
+                	n2=length(id_best)-length(id_prev)
+	                Clusters=deepcopy(clusters);Glob=deepcopy(glob)
+        	        Clusters2=deepcopy(clusters);Glob2=deepcopy(glob)
+	                restore_clusters!(glob,clusters,id_last);restore_clusters!(Glob,Clusters,id_prev)
+        	        Clusters1=deepcopy(Clusters);Glob1=deepcopy(Glob)
+                	cl1,ll_hm1=bisect_HM!(clusters,glob,n1,ll_hm_Prev,Check)
+	                cl2,ll_hm2=bisect_HM!(Clusters,Glob,n2,ll_hm_prev,Check)
+			if(ll_hm_last>ll_hm2)
+                        	cl2=Clusters2
+                        	Glob=Glob2
+                        	ll_hm2=ll_hm_last
+	                end
+        	        if(ll_hm_prev>ll_hm1)
+                	        cl1=Clusters1
+                        	glob=Glob1
+                        	ll_hm1=ll_hm_prev
+                	end
+
+		else
+			println("length of id_last=",length(id_last),"length of id_prev=",length(id_prev),"length of id_best=",length(id_best),"length of id_current=",length(clusters))
+			n1=length(id_best)-length(id_prev)
+	                n2=length(clusters)-length(id_best)
+        	        Clusters=deepcopy(clusters);Glob=deepcopy(glob)
+                	Clusters2=deepcopy(clusters);Glob2=deepcopy(glob)
+	                restore_clusters!(glob,clusters,id_prev);restore_clusters!(Glob,Clusters,id_best)
+        	        Clusters1=deepcopy(Clusters);Glob1=deepcopy(Glob)
+                	cl1,ll_hm1=bisect_HM!(clusters,glob,n1,ll_hm_prev,Check)
+	                cl2,ll_hm2=bisect_HM!(Clusters,Glob,n2,ll_hm_last,Check)
+			if(ll_hm>ll_hm2)
+                        	cl2=Clusters2
+                        	Glob=Glob2
+                        	ll_hm2=ll_hm
+                	end
+                	if(ll_hm_last>ll_hm1)
+                        	cl1=Clusters1
+                        	glob=Glob1
+                        	ll_hm1=ll_hm_last
+              		end
+
+
 		end
 		println("(id_prev,id_best)=",length(cl1),",",ll_hm1)
 		println("(id_best,id_current)=",length(cl2),",",ll_hm2)
-		if(length(cl1)==length(cl2))
-			if(ll_hm1<ll_hm2)
-				temp=cl1
-				score=ll_hm1
-			else
-				temp=cl2
-				score=ll_hm2
-				glob=Glob
-			end
-		else
-		#final,ll_hm=bisect_HM!(cl1,glob,length(cl2)-length(cl1),ll_hm1)
-		final,ll_hm=fixed_HM(cl1,glob,1,ll_hm1)
+		final,ll_hm=bisect_HM!(cl1,glob,length(cl2)-length(cl1),ll_hm1,Check)
+		#final,ll_hm=fixed_HM(cl1,glob,1,ll_hm1,Check)
 		if(ll_hm1<ll_hm2)
-			Clusters=cl2
+			cl3=cl2
 			score=ll_hm2
 		else
-			Clusters=cl1
+			cl3=cl1
 			score=ll_hm1
 		end
 		if(ll_hm<score)
-			temp=Clusters
+			temp=cl3
 		else
 			temp=final
 			score=ll_hm
 		end
+		if(check==1)
+            		Temp=deepcopy(temp)
+                	restore_clusters!(glob,final,id_Last)
+                	Final,Score=bisect_HM!(final,glob,length(Temp)-length(final),ll_hm_PREV,Check)
+       	       #        Final,Score=fixed_HM(temp,glob_final,1,ll_hm_Prev,1)
+		else
+			Temp=deepcopy(temp)
+			restore_clusters!(glob,final,id_last)
+        		Final,Score=bisect_HM!(final,glob,length(Temp)-length(final),ll_hm_Prev,Check)
+      	 	#	Final,Score=fixed_HM(temp,glob_final,1,ll_hm_Prev,1)
 		end
-		L=length(temp);Temp=deepcopy(temp)
-		restore_clusters!(glob,temp,id_last)
-		Final,ll_hm3=bisect_HM!(temp,glob,L-length(temp),ll_hm_Prev)
-		if(score<=ll_hm3)
-			println("Terminating with #clust=",length(Final),"ll_hm=",ll_hm3)
-                	return Final
+		if(score<=Score)
+			println("Terminating with #clust=",length(Final),"ll_hm=",Score)
+                        return Final,Score			
 		else
 			println("Terminating with #clust=",length(Temp),"ll_hm=",score)
-                        return Temp
+                        return Temp,score			
 		end
 		
 	else
-		n=length(clusters)
+		n=nnew
+		run=run+1
 		if(go==1)
-			n=fact*n
-			n=ceil(Int,n)
+			n=floor(Int,fact*n)
 		end
-		N=length(clusters)
-		if(N<length(id_best))
-			println("Exit2 Terminating with #clust=",length(clusters))
-                        return clusters
-		end
+	        if(length(clusters)<length(id_best))
+                        println("Exit2 Terminating with #clust=",length(clusters))
+                        return clusters,ll_hm
+                end
+
 		Clusters=deepcopy(clusters);Glob=deepcopy(glob)
-		restore_clusters!(Glob,Clusters,id_best)
-		id_prev_temp=save_clusters(Glob,Clusters)
 		restore_clusters!(Glob,Clusters,id_prev)
-		id_last=save_clusters(Glob,Clusters)
-		id_prev=id_prev_temp
+		id_prev_temp=save_clusters(Glob,Clusters)
+		restore_clusters!(Glob,Clusters,id_last)
+		id_Last=save_clusters(Glob,Clusters)
+		id_last=id_prev_temp
+		id_prev=id_best
 		id_best=save_clusters(glob,clusters)
 	end
     end
-    return final    
+    return final,ll_hm        
 end
 
 function bisect_TI!(cl::Vector{Cluster},glob::Params,n::Int,score::Float64)
